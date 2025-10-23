@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digraph Word Builder</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'primary': '#4F46E5', // Indigo
+                        'secondary': '#10B981', // Emerald
+                        'accent': '#F59E0B', // Amber
+                        'background': '#F9FAFB',
+                        'card': '#FFFFFF',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        /* Custom styles for the game tiles */
+        .tile {
+            transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        .tile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+        .slot {
+            transition: background-color 0.2s;
+            border: 2px dashed #9CA3AF;
+        }
+        /* Style for the container to ensure centering and max width */
+        #app-container {
+            max-width: 900px;
+            min-height: 100vh;
+        }
+        /* Keyframe for the shake animation */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+        .animate-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+    </style>
+</head>
+<body class="bg-background font-sans">
+
+    <div id="app-container" class="mx-auto p-4 md:p-8 flex flex-col items-center">
+        <!-- Header -->
+        <header class="w-full text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-primary mb-2">
+                Digraph Word Builder
+            </h1>
+            <p class="text-xl text-gray-600">Short Vowels & Digraphs: Drag & Drop or Tap the Tiles!</p>
+        </header>
+
+        <!-- Main Game Card -->
+        <div class="w-full bg-card rounded-xl shadow-2xl p-6 md:p-10 border-b-4 border-primary/50">
+            
+            <!-- Score & Instructions -->
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <div class="text-2xl font-bold text-gray-700">
+                    Score: <span id="score" class="text-secondary">0</span>
+                </div>
+                <div id="message-box" class="text-lg font-semibold text-center h-8">
+                    <!-- Feedback messages appear here -->
+                </div>
+                <button id="new-word-btn" class="bg-primary hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-150 shadow-md">
+                    New Word
+                </button>
+            </div>
+
+            <!-- Word Builder Slots -->
+            <div id="builder-container" class="flex justify-center items-center space-x-2 md:space-x-4 mb-10 min-h-[80px]">
+                <!-- Slots are dynamically generated here -->
+            </div>
+
+            <!-- Tile Bank -->
+            <div id="tile-bank-title" class="text-center text-xl font-bold text-gray-700 mb-4">
+                Available Tiles
+            </div>
+            <div id="tile-bank" class="flex flex-wrap justify-center gap-3 md:gap-4 p-4 bg-gray-100 rounded-lg shadow-inner min-h-[100px]">
+                <!-- Tiles are dynamically generated here -->
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex justify-center mt-8 space-x-4">
+                <button id="check-btn" class="bg-secondary hover:bg-emerald-600 text-white font-extrabold py-3 px-8 rounded-xl transition duration-150 shadow-lg disabled:opacity-50" disabled>
+                    Check Word
+                </button>
+            </div>
+        </div>
+
+        <!-- Digraph Word List for Reference (Hidden/Internal use) -->
+        <script id="word-list-data" type="application/json">
+            [
+                {"word": "ship", "parts": ["sh", "ip"]},
+                {"word": "chin", "parts": ["ch", "in"]},
+                {"word": "math", "parts": ["m", "ath"]},
+                {"word": "when", "parts": ["wh", "en"]},
+                {"word": "shop", "parts": ["sh", "op"]},
+                {"word": "such", "parts": ["s", "uch"]},
+                {"word": "fish", "parts": ["f", "ish"]},
+                {"word": "bath", "parts": ["b", "ath"]},
+                {"word": "chop", "parts": ["ch", "op"]},
+                {"word": "them", "parts": ["th", "em"]},
+                {"word": "quick", "parts": ["qu", "ick"]}
+            ]
+        </script>
+
+    </div>
+
+    <script>
+        // --- Game State Variables ---
+        const gameState = {
+            wordData: JSON.parse(document.getElementById('word-list-data').textContent),
+            currentWordIndex: -1,
+            targetWord: '',
+            targetParts: [],
+            shuffledTiles: [],
+            builderSlots: [],
+            score: 0,
+            isGameActive: false,
+        };
+
+        // --- DOM Elements ---
+        const builderContainer = document.getElementById('builder-container');
+        const tileBank = document.getElementById('tile-bank');
+        const scoreDisplay = document.getElementById('score');
+        const messageBox = document.getElementById('message-box');
+        const newWordBtn = document.getElementById('new-word-btn');
+        const checkBtn = document.getElementById('check-btn');
+        // Removed: readAloudBtn, readAloudText
+
+        // --- Utility function to shuffle an array (Fisher-Yates) ---
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // --- Core Game Functions ---
+
+        function startGame() {
+            gameState.score = 0;
+            scoreDisplay.textContent = gameState.score;
+            messageBox.textContent = 'Welcome! Press New Word to begin.';
+            newWordBtn.disabled = false;
+        }
+
+        function loadNewWord() {
+            // Select a random new word index
+            let newIndex;
+            do {
+                // Use Math.random directly if RNG is not defined elsewhere
+                newIndex = Math.floor(Math.random() * gameState.wordData.length); 
+            } while (newIndex === gameState.currentWordIndex && gameState.wordData.length > 1);
+            
+            gameState.currentWordIndex = newIndex;
+            const wordObj = gameState.wordData[gameState.currentWordIndex];
+            
+            gameState.targetWord = wordObj.word;
+            gameState.targetParts = wordObj.parts;
+            
+            // 1. Create shuffled tiles
+            gameState.shuffledTiles = shuffleArray([...wordObj.parts]);
+            
+            // 2. Initialize empty slots in the builder
+            gameState.builderSlots = Array(wordObj.parts.length).fill(null); 
+            
+            gameState.isGameActive = true;
+            renderGame();
+            
+            messageBox.textContent = `Build the ${wordObj.parts.length}-part word.`;
+            checkBtn.disabled = true;
+            // Removed: readAloudBtn.disabled = false;
+            // Removed: readAloudText.textContent = 'Read Word Aloud';
+            newWordBtn.textContent = 'Next Word';
+        }
+
+        function checkWord() {
+            if (!gameState.isGameActive) return;
+
+            // Combine the parts in the builder slots
+            const builtWord = gameState.builderSlots.filter(part => part !== null).join('');
+
+            if (builtWord.length < gameState.targetWord.length) {
+                displayFeedback('Please fill all the tiles!', 'text-accent');
+                return;
+            }
+
+            if (builtWord === gameState.targetWord) {
+                // Success!
+                gameState.score += 10;
+                scoreDisplay.textContent = gameState.score;
+                displayFeedback('Correct! Great job!', 'text-secondary');
+                
+                // Animate success on tiles
+                builderContainer.querySelectorAll('.tile').forEach(tile => {
+                    tile.classList.add('bg-secondary', 'animate-pulse');
+                });
+                
+                gameState.isGameActive = false;
+                checkBtn.disabled = true;
+                // Removed: readAloudBtn.disabled = true;
+                setTimeout(loadNewWord, 1500); // Load next word after a pause
+            } else {
+                // Incorrect
+                displayFeedback('Not quite! Try again.', 'text-red-500');
+                
+                // Brief shake/flash for incorrect attempt
+                builderContainer.classList.add('animate-shake');
+                setTimeout(() => builderContainer.classList.remove('animate-shake'), 500);
+            }
+        }
+
+        // --- Rendering Functions ---
+
+        function renderTileBank() {
+            tileBank.innerHTML = ''; // Clear previous tiles
+
+            gameState.shuffledTiles.forEach((part, index) => {
+                const isUsed = gameState.builderSlots.includes(part);
+
+                const tileEl = document.createElement('div');
+                tileEl.textContent = part.toUpperCase();
+                tileEl.dataset.part = part;
+                tileEl.dataset.originalIndex = index;
+
+                // Apply base styles
+                tileEl.className = `tile p-3 md:p-4 text-2xl md:text-3xl font-extrabold rounded-lg shadow-md uppercase transition-all duration-300 transform 
+                                    ${isUsed ? 'opacity-30 cursor-default bg-gray-400 text-gray-700' : 'bg-accent text-white hover:bg-amber-600'}`;
+
+                // Add event listener only if not currently used
+                if (!isUsed) {
+                    tileEl.addEventListener('click', handleTileClick);
+                }
+
+                tileBank.appendChild(tileEl);
+            });
+        }
+
+        function renderBuilderSlots() {
+            builderContainer.innerHTML = ''; // Clear previous slots
+
+            gameState.builderSlots.forEach((part, slotIndex) => {
+                const slotEl = document.createElement('div');
+                slotEl.dataset.slotIndex = slotIndex;
+                
+                // Slot base styles
+                slotEl.className = `slot w-[90px] h-[60px] md:w-[120px] md:h-[80px] rounded-lg flex items-center justify-center 
+                                    text-3xl md:text-4xl font-extrabold transition-colors duration-300`;
+
+                if (part) {
+                    // Tile is in the slot
+                    slotEl.classList.add('bg-primary/20', 'border-primary');
+                    slotEl.innerHTML = `
+                        <div class="tile p-3 md:p-4 bg-primary text-white rounded-lg shadow-xl cursor-pointer" data-part="${part}" data-slot-index="${slotIndex}">
+                            ${part.toUpperCase()}
+                        </div>
+                    `;
+                    // Add click handler to return the tile
+                    slotEl.querySelector('.tile').addEventListener('click', handleSlotClick);
+
+                } else {
+                    // Slot is empty
+                    slotEl.classList.add('bg-gray-200/50', 'text-gray-500');
+                    slotEl.textContent = '...';
+                }
+
+                builderContainer.appendChild(slotEl);
+            });
+            
+            // Check if the word is complete to enable the check button
+            const isComplete = gameState.builderSlots.every(part => part !== null);
+            checkBtn.disabled = !isComplete || !gameState.isGameActive;
+        }
+
+        function renderGame() {
+            renderTileBank();
+            renderBuilderSlots();
+        }
+
+        function displayFeedback(message, colorClass) {
+            messageBox.className = `text-lg font-semibold text-center h-8 ${colorClass}`;
+            messageBox.textContent = message;
+        }
+
+        // --- Event Handlers ---
+
+        function handleTileClick(event) {
+            if (!gameState.isGameActive) return;
+
+            const tileEl = event.currentTarget;
+            const part = tileEl.dataset.part;
+            
+            // Find the first empty slot
+            const emptySlotIndex = gameState.builderSlots.findIndex(p => p === null);
+
+            if (emptySlotIndex !== -1) {
+                // Place the part into the empty slot
+                gameState.builderSlots[emptySlotIndex] = part;
+                renderGame();
+                displayFeedback('', ''); // Clear message box
+            }
+        }
+        
+        function handleSlotClick(event) {
+            if (!gameState.isGameActive) return;
+
+            // Clicking a tile in a slot returns it to the bank
+            const tileEl = event.currentTarget;
+            const part = tileEl.dataset.part;
+            const slotIndex = parseInt(tileEl.dataset.slotIndex);
+            
+            // Remove the part from the slot
+            gameState.builderSlots[slotIndex] = null;
+            
+            renderGame();
+            displayFeedback('Tile returned to the bank.', 'text-gray-500');
+        }
+        
+        // Simple random number generator utility for better testability/future expansion
+        // const RNG = Math.random; // Removed since it was unused
+
+        // --- Initialization ---
+
+        window.onload = function() {
+            
+            newWordBtn.addEventListener('click', loadNewWord);
+            checkBtn.addEventListener('click', checkWord);
+            
+            // Removed: readAloudBtn event listener
+            
+            startGame();
+        };
+
+    </script>
+</body>
+</html>
